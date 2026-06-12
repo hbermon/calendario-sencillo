@@ -70,7 +70,7 @@ class CalendarioEventosApp(tk.Tk):
         # 2. LEYENDA DE COLORES (Parte Inferior)
         self.crear_leyenda_inferior()
 
-        # Inyección de sincronización de navegación bidireccional corregida
+        # Inyección de sincronización de navegación bidireccional mediante API Oficial
         self.inyectar_navegacion_sincronizada()
 
         # Dibujar marcas y eventos iniciales
@@ -114,7 +114,6 @@ class CalendarioEventosApp(tk.Tk):
             self.focus_force()
 
     def cargar_configuracion_colores(self):
-        """Lee la pestaña 'Configuracion' del Excel. Si no existe, la crea con valores por defecto."""
         excel_path = 'eventos.xlsx'
         colores_defecto = {
             'Fin sprint': '#3498db',
@@ -163,7 +162,6 @@ class CalendarioEventosApp(tk.Tk):
             return colores_defecto
 
     def cargar_eventos(self):
-        """Lee la pestaña 'Eventos' del Excel utilizando openpyxl (Sin rastro de Pandas)"""
         excel_path = 'eventos.xlsx'
         try:
             from openpyxl import load_workbook
@@ -199,7 +197,6 @@ class CalendarioEventosApp(tk.Tk):
             return {}
 
     def crear_leyenda_inferior(self):
-        """Crea de forma dinámica la sección de leyenda en la parte baja"""
         leyenda_frame = tk.Frame(self.main_frame, bg="#f3f3f3", pady=5)
         leyenda_frame.grid(row=2, column=0, columnspan=2, sticky="ew")
         
@@ -222,67 +219,39 @@ class CalendarioEventosApp(tk.Tk):
             lbl_texto.pack(side=tk.LEFT, padx=(0, 15))
 
     def inyectar_navegacion_sincronizada(self):
-        """Asegura sincronización bidireccional exacta sin importar qué calendario se mueva"""
+        """ Sincronización reactiva basada en eventos utilizando la API correcta (see) """
         
-        # Guardamos las funciones de navegación nativas de tkcalendar
-        orig_next_izq = self.cal_actual._next_month
-        orig_prev_izq = self.cal_actual._prev_month
-        orig_next_der = self.cal_siguiente._next_month
-        orig_prev_der = self.cal_siguiente._prev_month
-
-        # --- CASO A: El usuario interactúa con el calendario IZQUIERDO ---
-        def nueva_next_izq():
+        def sincronizar_desde_izquierdo(event):
             if self.bloqueo_sincronizacion: return
             self.bloqueo_sincronizacion = True
             
-            orig_next_izq()  # Avanza mes izquierdo
-            # Sincroniza el derecho basándose en la nueva fecha del izquierdo
-            fecha_ref = datetime(self.cal_actual.__year, self.cal_actual.__month, 1) + relativedelta(months=1)
-            self.cal_siguiente.display_month(fecha_ref)
+            # Leer qué mes quedó en la izquierda
+            mes, anio = self.cal_actual.get_displayed_month()
+            # Calcular el mes siguiente para la derecha
+            fecha_der = datetime(anio, mes, 1) + relativedelta(months=1)
+            # Método correcto de tkcalendar para posicionar la vista
+            self.cal_siguiente.see(fecha_der)
             
             self.refrescar_toda_la_interfaz()
             self.bloqueo_sincronizacion = False
 
-        def nueva_prev_izq():
+        def sincronizar_desde_derecho(event):
             if self.bloqueo_sincronizacion: return
             self.bloqueo_sincronizacion = True
             
-            orig_prev_izq()  # Retrocede mes izquierdo
-            fecha_ref = datetime(self.cal_actual.__year, self.cal_actual.__month, 1) + relativedelta(months=1)
-            self.cal_siguiente.display_month(fecha_ref)
+            # Leer qué mes quedó en la derecha
+            mes, anio = self.cal_siguiente.get_displayed_month()
+            # Calcular el mes anterior para la izquierda
+            fecha_izq = datetime(anio, mes, 1) - relativedelta(months=1)
+            # Método correcto de tkcalendar para posicionar la vista
+            self.cal_actual.see(fecha_izq)
             
             self.refrescar_toda_la_interfaz()
             self.bloqueo_sincronizacion = False
 
-        # --- CASO B: El usuario interactúa con el calendario DERECHO ---
-        def nueva_next_der():
-            if self.bloqueo_sincronizacion: return
-            self.bloqueo_sincronizacion = True
-            
-            orig_next_der()  # Avanza mes derecho
-            # Sincroniza el izquierdo restándole un mes exacto al derecho
-            fecha_ref = datetime(self.cal_siguiente.__year, self.cal_siguiente.__month, 1) - relativedelta(months=1)
-            self.cal_actual.display_month(fecha_ref)
-            
-            self.refrescar_toda_la_interfaz()
-            self.bloqueo_sincronizacion = False
-
-        def nueva_prev_der():
-            if self.bloqueo_sincronizacion: return
-            self.bloqueo_sincronizacion = True
-            
-            orig_prev_der()  # Retrocede mes derecho
-            fecha_ref = datetime(self.cal_siguiente.__year, self.cal_siguiente.__month, 1) - relativedelta(months=1)
-            self.cal_actual.display_month(fecha_ref)
-            
-            self.refrescar_toda_la_interfaz()
-            self.bloqueo_sincronizacion = False
-
-        # Asignación de los nuevos métodos acoplados simétricamente
-        self.cal_actual._next_month = nueva_next_izq
-        self.cal_actual._prev_month = nueva_prev_izq
-        self.cal_siguiente._next_month = nueva_next_der
-        self.cal_siguiente._prev_month = nueva_prev_der
+        # Escuchar de forma reactiva el evento oficial de cambio de mes
+        self.cal_actual.bind("<<CalendarMonthChanged>>", sincronizar_desde_izquierdo)
+        self.cal_siguiente.bind("<<CalendarMonthChanged>>", sincronizar_desde_derecho)
 
     def refrescar_toda_la_interfaz(self):
         self.cal_actual.calevent_remove('all')
