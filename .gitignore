@@ -1,0 +1,10 @@
+# carpetas
+/build
+/dist
+/calendario_limpio
+
+# archivos
+*.ico
+*.log
+*.spec
+*.xlsx
