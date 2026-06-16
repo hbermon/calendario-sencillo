@@ -1,0 +1,8 @@
+py -m venv venv_limpio
+.\venv_limpio\Scripts\activate
+
+pip install openpyxl tkcalendar pyinstaller python-dateutil
+pip install python-dateutil
+
+
+pyinstaller --clean --onefile --windowed --hidden-import="babel.numbers" --icon=calendario.ico --name=calendario calendario.py
