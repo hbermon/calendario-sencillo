@@ -161,41 +161,6 @@ class CalendarioEventosApp(tk.Tk):
             print(f"Error al cargar configuración de colores: {e}")
             return colores_defecto
 
-    def cargar_eventos(self):
-        excel_path = 'eventos.xlsx'
-        try:
-            from openpyxl import load_workbook
-            wb = load_workbook(excel_path, data_only=True)
-            nombre_hoja = "Eventos" if "Eventos" in wb.sheetnames else wb.sheetnames[0]
-            ws = wb[nombre_hoja]
-            
-            eventos_dict = {}
-            for row in ws.iter_rows(min_row=2, values_only=True):
-                if not row[0]: 
-                    continue
-                    
-                fecha_val = row[0]
-                if isinstance(fecha_val, datetime):
-                    fecha_str = fecha_val.strftime('%Y-%m-%d')
-                else:
-                    try:
-                        fecha_str = str(fecha_val).split(" ")[0]
-                    except:
-                        fecha_str = str(fecha_val).split(" ")[0]
-                
-                evento = str(row[1]) if row[1] else ""
-                tipo = str(row[2]).strip() if row[2] else "Predeterminado"
-                
-                if fecha_str not in eventos_dict:
-                    eventos_dict[fecha_str] = []
-                eventos_dict[fecha_str].append({'texto': evento, 'tipo': tipo})
-                
-            wb.close()
-            return eventos_dict
-        except Exception as e:
-            print(f"Error al cargar el archivo Excel: {e}")
-            return {}
-
     def crear_leyenda_inferior(self):
         leyenda_frame = tk.Frame(self.main_frame, bg="#f3f3f3", pady=5)
         leyenda_frame.grid(row=2, column=0, columnspan=2, sticky="ew")
@@ -253,32 +218,70 @@ class CalendarioEventosApp(tk.Tk):
         self.cal_actual.bind("<<CalendarMonthChanged>>", sincronizar_desde_izquierdo)
         self.cal_siguiente.bind("<<CalendarMonthChanged>>", sincronizar_desde_derecho)
 
-    def refrescar_toda_la_interfaz(self):
-        self.cal_actual.calevent_remove('all')
-        self.cal_siguiente.calevent_remove('all')
-        
-        hoy = datetime.today()
-        for cal in [self.cal_actual, self.cal_siguiente]:
-            cal.calevent_create(hoy, 'Hoy', 'tag_hoy')
-            cal.tag_config('tag_hoy', background='#f1c40f', foreground='black')
+    def cargar_eventos(self):
+        """Lee la pestaña 'Eventos' con la nueva estructura de rangos (fecha_inicio, fecha_fin)"""
+        excel_path = 'eventos.xlsx'
+        try:
+            from openpyxl import load_workbook
+            wb = load_workbook(excel_path, data_only=True)
+            nombre_hoja = "Eventos" if "Eventos" in wb.sheetnames else wb.sheetnames[0]
+            ws = wb[nombre_hoja]
+            
+            eventos_dict = {}
+            
+            # Recorrer filas. Estructura esperada: col 0=inicio, col 1=fin, col 2=evento, col 3=tipo
+            for row in ws.iter_rows(min_row=2, values_only=True):
+                if not row[0]: 
+                    continue
+                
+                # Parseo seguro de Fecha Inicio
+                if isinstance(row[0], datetime):
+                    dt_inicio = row[0]
+                else:
+                    dt_inicio = datetime.strptime(str(row[0]).split(" ")[0], '%Y-%m-%d')
+                
+                # Parseo seguro de Fecha Fin (Opcional)
+                dt_fin = None
+                if row[1]:
+                    if isinstance(row[1], datetime):
+                        dt_fin = row[1]
+                    else:
+                        try:
+                            dt_fin = datetime.strptime(str(row[1]).split(" ")[0], '%Y-%m-%d')
+                        except:
+                            dt_fin = None
 
-        hoy_str = hoy.strftime('%Y-%m-%d')
-        for fecha_str, lista_eventos in self.eventos.items():
-            if fecha_str == hoy_str:
-                continue
-            try:
-                fecha_dt = datetime.strptime(fecha_str, '%Y-%m-%d')
-                tipo_evento = lista_eventos[0]['tipo']
-                color = self.colores_por_tipo.get(tipo_evento, self.colores_por_tipo['Predeterminado'])
+                texto_evento = str(row[2]) if row[2] else ""
+                tipo_evento = str(row[3]).strip() if row[3] else "Predeterminado"
                 
-                tag_name = f"tag_{fecha_str}"
-                self.cal_actual.calevent_create(fecha_dt, lista_eventos[0]['texto'], tag_name)
-                self.cal_actual.tag_config(tag_name, background=color, foreground='white')
-                
-                self.cal_siguiente.calevent_create(fecha_dt, lista_eventos[0]['texto'], tag_name)
-                self.cal_siguiente.tag_config(tag_name, background=color, foreground='white')
-            except ValueError:
-                continue
+                # Determinar los días a marcar
+                lista_dias = []
+                if dt_fin and dt_fin > dt_inicio:
+                    # Es un rango (Sprint u otro bloque)
+                    aux_dt = dt_inicio
+                    while aux_dt <= dt_fin:
+                        lista_dias.append(aux_dt.strftime('%Y-%m-%d'))
+                        aux_dt += relativedelta(days=1)
+                else:
+                    # Es un evento de un solo día (Festivo, Hito)
+                    lista_dias.append(dt_inicio.strftime('%Y-%m-%d'))
+
+                # Guardar en el diccionario estructurado
+                for celda_fecha in lista_dias:
+                    if celda_fecha not in eventos_dict:
+                        eventos_dict[celda_fecha] = []
+                    
+                    eventos_dict[celda_fecha].append({
+                        'texto': texto_evento,
+                        'tipo': tipo_evento,
+                        'es_rango': dt_fin is not None
+                    })
+                    
+            wb.close()
+            return eventos_dict
+        except Exception as e:
+            print(f"Error al cargar el archivo Excel estructurado: {e}")
+            return {}
 
     def bind_eventos_mouse(self, calendario):
         calendario.bind("<Motion>", lambda event: self.verificar_hover(event, calendario))
@@ -315,42 +318,217 @@ class CalendarioEventosApp(tk.Tk):
         self.tooltip.withdraw()
 
     def mostrar_evento_seleccionado(self, calendario):
-        fecha_dt = calendario.selection_get()
-        if not fecha_dt: return
-            
+        """Muestra el popup de detalles integrando el icono institucional de la app"""
+        try:
+            fecha_dt = calendario.selection_get()
+        except:
+            fecha_dt = None
+
+        if not fecha_dt: 
+            return
+
+        # Validar si el día seleccionado pertenece al mes real de ese calendario
+        mes_visible, ano_visible = calendario.get_displayed_month()
+        if fecha_dt.month != mes_visible or fecha_dt.year != ano_visible:
+            self.cal_actual.selection_set(None)
+            self.cal_siguiente.selection_set(None)
+            return
+
         fecha_str = fecha_dt.strftime('%Y-%m-%d')
-        if fecha_str not in self.eventos: return
+        if fecha_str not in self.eventos: 
+            self.cal_actual.selection_set(None)
+            self.cal_siguiente.selection_set(None)
+            return
 
         textos = [f"• {ev['texto']} ({ev['tipo']})" for ev in self.eventos[fecha_str]]
         detalle_eventos = "\n".join(textos)
 
+        # Crear Ventana Emergente (Popup)
         popup = tk.Toplevel(self)
         popup.title("Detalle de Eventos")
         popup.configure(bg="#2c3e50")
-        popup.geometry("320x200")
+        popup.geometry("340x220")
         popup.resizable(False, False)
         
-        px = self.winfo_x() + (self.winfo_width() // 2) - 160
-        py = self.winfo_y() + (self.winfo_height() // 2) - 100
+        # --- CONFIGURACIÓN DEL ICONO DE LA VENTANA ---
+        try:
+            # Reutiliza el archivo .ico del directorio raíz de la app
+            import os
+            ruta_icono = os.path.join(os.path.dirname(__file__), "calendario.ico")
+            popup.iconbitmap(ruta_icono)
+        except Exception as e:
+            # Respaldo silencioso si el archivo no está en la ruta durante el desarrollo
+            pass
+        
+        # Centrar el popup respecto a la app principal
+        px = self.winfo_x() + (self.winfo_width() // 2) - 170
+        py = self.winfo_y() + (self.winfo_height() // 2) - 110
         popup.geometry(f"+{px}+{py}")
         popup.attributes("-topmost", True)
 
+        # Título de la fecha
         lbl_fecha = tk.Label(popup, text=f"Eventos: {fecha_dt.strftime('%d/%m/%Y')}", 
-                             font=("Segoe UI", 11, "bold"), bg="#2c3e50", fg="#f1c40f", pady=10)
-        lbl_fecha.pack()
+                             font=("Segoe UI", 11, "bold"), bg="#2c3e50", fg="#f1c40f", pady=8)
+        lbl_fecha.pack(side=tk.TOP, fill=tk.X)
 
+        # --- LÓGICA DE CIERRE SEGURO ---
+        def ejecutar_cierre_limpio():
+            try:
+                self.cal_actual.selection_set(None)
+                self.cal_siguiente.selection_set(None)
+            except:
+                pass
+            self.refrescar_toda_la_interfaz()
+            popup.destroy()
+
+        # Botón de cierre
+        btn_cerrar = tk.Button(popup, text="Cerrar", bg="#34495e", fg="white", 
+                               font=("Segoe UI", 9, "bold"), activebackground="#1a252f", 
+                               activeforeground="white", bd=0, cursor="hand2", 
+                               command=ejecutar_cierre_limpio)
+        btn_cerrar.pack(side=tk.BOTTOM, pady=12, ipadx=20, ipady=3)
+
+        # Caja de Texto
         txt_box = tk.Text(popup, bg="#34495e", fg="white", font=("Segoe UI", 10), wrap=tk.WORD, bd=0, padx=10, pady=5)
         txt_box.insert(tk.END, detalle_eventos)
         txt_box.config(state=tk.DISABLED)
-        txt_box.pack(fill=tk.BOTH, expand=True, padx=15, pady=5)
+        txt_box.pack(side=tk.TOP, fill=tk.BOTH, expand=True, padx=15, pady=2)
 
-        btn_cerrar = tk.Button(popup, text="Cerrar", bg="#e74c3c", fg="white", font=("Segoe UI", 9, "bold"),
-                               activebackground="#c0392b", activeforeground="white", bd=0, 
-                               command=popup.destroy, cursor="hand2", padding=5)
-        btn_cerrar.pack(pady=10)
-
+        popup.protocol("WM_DELETE_WINDOW", ejecutar_cierre_limpio)
         popup.focus_set()
-        popup.grab_set()
+
+    def refrescar_toda_la_interfaz(self):
+        """
+        Dibuja marcas aplicando prioridades, alternancia de sprints real por orden cronológico,
+        oscurece dinámicamente cualquier tipo de evento si hay coincidencias reales,
+        y restringe el pintado estrictamente a los días nativos de cada mes para evitar bugs visuales.
+        """
+        # 1. Limpiar por completo todos los eventos y marcas previas de ambos calendarios
+        self.cal_actual.calevent_remove('all')
+        self.cal_siguiente.calevent_remove('all')
+        
+        hoy = datetime.today()
+        hoy_str = hoy.strftime('%Y-%m-%d')
+        
+        # 2. Marcar siempre el día de 'Hoy' primero (Prioridad Dorada)
+        for cal in [self.cal_actual, self.cal_siguiente]:
+            cal.calevent_create(hoy, 'Hoy', 'tag_hoy')
+            cal.tag_config('tag_hoy', background='#f1c40f', foreground='black')
+
+        # --- LÓGICA DE ALTERNANCIA CRONOLÓGICA DE SPRINTS ---
+        dias_sprint_ordenados = sorted([
+            f for f, eventos in self.eventos.items() 
+            if any('sprint' in ev['tipo'].lower() for ev in eventos)
+        ])
+
+        mapeo_color_sprint = {}
+        if dias_sprint_ordenados:
+            indice_bloque_sprint = 0
+            fecha_anterior = datetime.strptime(dias_sprint_ordenados[0], '%Y-%m-%d')
+            mapeo_color_sprint[dias_sprint_ordenados[0]] = indice_bloque_sprint
+            
+            for i in range(1, len(dias_sprint_ordenados)):
+                fecha_actual = datetime.strptime(dias_sprint_ordenados[i], '%Y-%m-%d')
+                diferencia = (fecha_actual - fecha_anterior).days
+                
+                texto_ant = next(ev['texto'] for ev in self.eventos[fecha_anterior.strftime('%Y-%m-%d')] if 'sprint' in ev['tipo'].lower())
+                texto_act = next(ev['texto'] for ev in self.eventos[fecha_actual.strftime('%Y-%m-%d')] if 'sprint' in ev['tipo'].lower())
+                
+                if diferencia > 3 or texto_ant != texto_act:
+                    indice_bloque_sprint += 1
+                
+                mapeo_color_sprint[dias_sprint_ordenados[i]] = indice_bloque_sprint
+                fecha_anterior = fecha_actual
+
+        # Colores base de los Sprints
+        color_sprint_a = self.colores_por_tipo.get('Inicio sprint', '#2ecc71') # Verde normal
+        color_sprint_b = self.colores_por_tipo.get('Fin sprint', '#3498db')    # Azul normal
+        
+        # Variantes intensas para coincidencias en Sprints
+        color_sprint_a_intenso = '#1b7e43' # Verde oscuro bosque
+        color_sprint_b_intenso = '#1f5f8a' # Azul profundo marino
+
+        # --- FUNCIÓN INTERNA PARA OSCURECER HEXADECIMALES DINÁMICAMENTE ---
+        def oscurecer_color(hex_color, factor=0.7):
+            """ Toma un color hex del Excel y reduce su brillo para denotar solapamiento """
+            hex_color = hex_color.lstrip('#')
+            if len(hex_color) != 6:
+                return '#444444'
+            try:
+                r, g, b = int(hex_color[0:2], 16), int(hex_color[2:4], 16), int(hex_color[4:6], 16)
+                r, g, b = int(r * factor), int(g * factor), int(b * factor)
+                return f'#{r:02x}{g:02x}{b:02x}'
+            except:
+                return '#444444'
+
+        # --- OBTENER LOS MESES VISIBLES PARA EL FILTRADO DE ESQUINAS (UX) ---
+        mes_izq, ano_izq = self.cal_actual.get_displayed_month()
+        mes_der, ano_der = self.cal_siguiente.get_displayed_month()
+
+        # --- RECORRER Y PINTAR CADA DÍA CON EVENTOS ---
+        for fecha_str, lista_eventos in self.eventos.items():
+            if fecha_str == hoy_str:
+                continue  # 'Hoy' mantiene su prioridad dorada intacta
+                
+            try:
+                fecha_dt = datetime.strptime(fecha_str, '%Y-%m-%d')
+                
+                # Regla de negocio: Fines de semana no se colorean
+                if fecha_dt.weekday() in [5, 6]:
+                    continue
+                
+                # 3. EVALUAR PRIORIDAD DE SELECCIÓN DEL EVENTO PRINCIPAL (Festivos > Sprints > Otros)
+                evento_ganador = lista_eventos[0]
+                for ev in lista_eventos:
+                    if 'festivo' in ev['tipo'].lower():
+                        evento_ganador = ev
+                        break
+                
+                tipo = evento_ganador['tipo']
+                texto = evento_ganador['texto']
+                
+                # 4. DETERMINAR SI EXISTE COINCIDENCIA REAL
+                hay_coincidencia = len(lista_eventos) > 1
+                
+                # Regla de exclusión: Si es festivo y su único acompañante es el sprint base, NO es coincidencia
+                if 'festivo' in tipo.lower() and hay_coincidencia:
+                    coincidencias_no_sprint = [
+                        ev for ev in lista_eventos 
+                        if ev != evento_ganador and 'sprint' not in ev['tipo'].lower()
+                    ]
+                    if not coincidencias_no_sprint:
+                        hay_coincidencia = False
+
+                # 5. ASIGNACIÓN MATEMÁTICA DEL COLOR DE FONDO
+                if 'sprint' in tipo.lower():
+                    bloque = mapeo_color_sprint.get(fecha_str, 0)
+                    if hay_coincidencia:
+                        color_fondo = color_sprint_a_intenso if bloque % 2 == 0 else color_sprint_b_intenso
+                    else:
+                        color_fondo = color_sprint_a if bloque % 2 == 0 else color_sprint_b
+                else:
+                    # Aplica para Festivos, Planeaciones, Demos y cualquier otro tipo personalizado del Excel
+                    color_base = self.colores_por_tipo.get(tipo, self.colores_por_tipo.get('Predeterminado', '#95a5a6'))
+                    if hay_coincidencia:
+                        color_fondo = oscurecer_color(color_base, factor=0.7) # Se oscurece un 30%
+                    else:
+                        color_fondo = color_base
+
+                # 6. INYECTAR EXCLUSIVAMENTE EN EL MES QUE CORRESPONDE (Evita bug de días grises)
+                tag_name = f"tag_{fecha_str}"
+                
+                # Calendario Izquierdo: Solo si el evento pertenece a su mes activo
+                if fecha_dt.month == mes_izq and fecha_dt.year == ano_izq:
+                    self.cal_actual.calevent_create(fecha_dt, texto, tag_name)
+                    self.cal_actual.tag_config(tag_name, background=color_fondo, foreground='white')
+                    
+                # Calendario Derecho: Solo si el evento pertenece a su mes activo
+                if fecha_dt.month == mes_der and fecha_dt.year == ano_der:
+                    self.cal_siguiente.calevent_create(fecha_dt, texto, tag_name)
+                    self.cal_siguiente.tag_config(tag_name, background=color_fondo, foreground='white')
+                    
+            except ValueError:
+                continue
 
     def iniciar_arrastre(self, event):
         self.x_offset = event.x
