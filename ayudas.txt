@@ -6,3 +6,10 @@ pip install python-dateutil
 
 
 pyinstaller --clean --onefile --windowed --hidden-import="babel.numbers" --icon=calendario.ico --name=calendario calendario.py
+
+pyinstaller --clean --onefile --windowed --hidden-import="babel.numbers" --add-data "calendario.ico;." --icon=calendario.ico --name=calendario calendario.py
+
+#TODO:
+- [ ] Cuando se da click en fechas grises que solo muestre el día de la semana
+- [ ] Bug: si cambio el orden de los días en el calendario, el programa no muestra el color correcto
+- [ ] La ventana emergente no sigue a la ventana principal, siempre abre en otra posición
