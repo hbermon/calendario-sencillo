@@ -6,6 +6,16 @@ from datetime import datetime
 from dateutil.relativedelta import relativedelta
 from tkcalendar import Calendar
 
+def resolver_ruta(ruta_relativa):
+    """ Obtiene la ruta absoluta para recursos empaquetados por PyInstaller """
+    try:
+        # PyInstaller crea una carpeta temporal y guarda la ruta en _MEIPASS
+        base_path = sys._MEIPASS
+    except Exception:
+        base_path = os.path.abspath(".")
+
+    return os.path.join(base_path, ruta_relativa)
+
 class CalendarioEventosApp(tk.Tk):
     def __init__(self):
         super().__init__()
@@ -352,12 +362,10 @@ class CalendarioEventosApp(tk.Tk):
         
         # --- CONFIGURACIÓN DEL ICONO DE LA VENTANA ---
         try:
-            # Reutiliza el archivo .ico del directorio raíz de la app
-            import os
-            ruta_icono = os.path.join(os.path.dirname(__file__), "calendario.ico")
+            # Usamos la función de rescate para PyInstaller
+            ruta_icono = resolver_ruta("calendario.ico")
             popup.iconbitmap(ruta_icono)
         except Exception as e:
-            # Respaldo silencioso si el archivo no está en la ruta durante el desarrollo
             pass
         
         # Centrar el popup respecto a la app principal
