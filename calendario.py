@@ -407,18 +407,18 @@ class CalendarioEventosApp(tk.Tk):
 
     def refrescar_toda_la_interfaz(self):
         """
-        Dibuja marcas aplicando prioridades, alternancia de sprints real por orden cronológico,
-        oscurece dinámicamente cualquier tipo de evento si hay coincidencias reales,
-        y restringe el pintado estrictamente a los días nativos de cada mes para evitar bugs visuales.
+        Dibuja marcas aplicando prioridades y alternancia cronológica de sprints.
+        Garantiza que si un FESTIVO cae sábado o domingo, se pinte correctamente, 
+        mientras que los fines de semana ordinarios se mantienen limpios.
         """
-        # 1. Limpiar por completo todos los eventos y marcas previas de ambos calendarios
+        # 1. Limpiar por completo ambos calendarios
         self.cal_actual.calevent_remove('all')
         self.cal_siguiente.calevent_remove('all')
         
         hoy = datetime.today()
         hoy_str = hoy.strftime('%Y-%m-%d')
         
-        # 2. Marcar siempre el día de 'Hoy' primero (Prioridad Dorada)
+        # Marcar siempre el día de 'Hoy' (Prioridad Dorada)
         for cal in [self.cal_actual, self.cal_siguiente]:
             cal.calevent_create(hoy, 'Hoy', 'tag_hoy')
             cal.tag_config('tag_hoy', background='#f1c40f', foreground='black')
@@ -448,66 +448,55 @@ class CalendarioEventosApp(tk.Tk):
                 mapeo_color_sprint[dias_sprint_ordenados[i]] = indice_bloque_sprint
                 fecha_anterior = fecha_actual
 
-        # Colores base de los Sprints
-        color_sprint_a = self.colores_por_tipo.get('Inicio sprint', '#2ecc71') # Verde normal
-        color_sprint_b = self.colores_por_tipo.get('Fin sprint', '#3498db')    # Azul normal
-        
-        # Variantes intensas para coincidencias en Sprints
-        color_sprint_a_intenso = '#1b7e43' # Verde oscuro bosque
-        color_sprint_b_intenso = '#1f5f8a' # Azul profundo marino
+        # Colores de Sprints
+        color_sprint_a = self.colores_por_tipo.get('Inicio sprint', '#2ecc71')
+        color_sprint_b = self.colores_por_tipo.get('Fin sprint', '#3498db')
+        color_sprint_a_intenso = '#1b7e43' 
+        color_sprint_b_intenso = '#1f5f8a' 
 
-        # --- FUNCIÓN INTERNA PARA OSCURECER HEXADECIMALES DINÁMICAMENTE ---
         def oscurecer_color(hex_color, factor=0.7):
-            """ Toma un color hex del Excel y reduce su brillo para denotar solapamiento """
             hex_color = hex_color.lstrip('#')
-            if len(hex_color) != 6:
-                return '#444444'
+            if len(hex_color) != 6: return '#444444'
             try:
                 r, g, b = int(hex_color[0:2], 16), int(hex_color[2:4], 16), int(hex_color[4:6], 16)
-                r, g, b = int(r * factor), int(g * factor), int(b * factor)
-                return f'#{r:02x}{g:02x}{b:02x}'
-            except:
-                return '#444444'
+                return f'#{int(r*factor):02x}{int(g*factor):02x}{int(b*factor):02x}'
+            except: return '#444444'
 
-        # --- OBTENER LOS MESES VISIBLES PARA EL FILTRADO DE ESQUINAS (UX) ---
         mes_izq, ano_izq = self.cal_actual.get_displayed_month()
         mes_der, ano_der = self.cal_siguiente.get_displayed_month()
 
-        # --- RECORRER Y PINTAR CADA DÍA CON EVENTOS ---
+        # --- RECORRER Y PINTAR CADA DÍA ---
         for fecha_str, lista_eventos in self.eventos.items():
             if fecha_str == hoy_str:
-                continue  # 'Hoy' mantiene su prioridad dorada intacta
+                continue  
                 
             try:
                 fecha_dt = datetime.strptime(fecha_str, '%Y-%m-%d')
                 
-                # Regla de negocio: Fines de semana no se colorean
-                if fecha_dt.weekday() in [5, 6]:
-                    continue
-                
-                # 3. EVALUAR PRIORIDAD DE SELECCIÓN DEL EVENTO PRINCIPAL (Festivos > Sprints > Otros)
+                # 2. EVALUAR PRIORIDAD (Festivos > Sprints > Otros)
                 evento_ganador = lista_eventos[0]
+                es_festivo = False
                 for ev in lista_eventos:
                     if 'festivo' in ev['tipo'].lower():
                         evento_ganador = ev
+                        es_festivo = True
                         break
                 
+                # --- NUEVA REGLA DE FIN DE SEMANA BLINDADO ---
+                # Si es sábado (5) o domingo (6) y NO es un festivo, se ignora el pintado ordinario.
+                if fecha_dt.weekday() in [5, 6] and not es_festivo:
+                    continue
+
                 tipo = evento_ganador['tipo']
                 texto = evento_ganador['texto']
                 
-                # 4. DETERMINAR SI EXISTE COINCIDENCIA REAL
-                hay_coincidencia = len(lista_eventos) > 1
-                
-                # Regla de exclusión: Si es festivo y su único acompañante es el sprint base, NO es coincidencia
-                if 'festivo' in tipo.lower() and hay_coincidencia:
-                    coincidencias_no_sprint = [
-                        ev for ev in lista_eventos 
-                        if ev != evento_ganador and 'sprint' not in ev['tipo'].lower()
-                    ]
-                    if not coincidencias_no_sprint:
-                        hay_coincidencia = False
+                # 3. DETERMINAR SI CORRESPONDE APLICAR COINCIDENCIA (OSCURECIMIENTO)
+                if es_festivo:
+                    hay_coincidencia = False
+                else:
+                    hay_coincidencia = len(lista_eventos) > 1
 
-                # 5. ASIGNACIÓN MATEMÁTICA DEL COLOR DE FONDO
+                # 4. ASIGNACIÓN DEL COLOR DE FONDO FINAL
                 if 'sprint' in tipo.lower():
                     bloque = mapeo_color_sprint.get(fecha_str, 0)
                     if hay_coincidencia:
@@ -515,22 +504,19 @@ class CalendarioEventosApp(tk.Tk):
                     else:
                         color_fondo = color_sprint_a if bloque % 2 == 0 else color_sprint_b
                 else:
-                    # Aplica para Festivos, Planeaciones, Demos y cualquier otro tipo personalizado del Excel
                     color_base = self.colores_por_tipo.get(tipo, self.colores_por_tipo.get('Predeterminado', '#95a5a6'))
                     if hay_coincidencia:
-                        color_fondo = oscurecer_color(color_base, factor=0.7) # Se oscurece un 30%
+                        color_fondo = oscurecer_color(color_base, factor=0.7)
                     else:
-                        color_fondo = color_base
+                        color_fondo = color_base 
 
-                # 6. INYECTAR EXCLUSIVAMENTE EN EL MES QUE CORRESPONDE (Evita bug de días grises)
+                # 5. INYECTAR EXCLUSIVAMENTE EN EL MES NATIVO
                 tag_name = f"tag_{fecha_str}"
                 
-                # Calendario Izquierdo: Solo si el evento pertenece a su mes activo
                 if fecha_dt.month == mes_izq and fecha_dt.year == ano_izq:
                     self.cal_actual.calevent_create(fecha_dt, texto, tag_name)
                     self.cal_actual.tag_config(tag_name, background=color_fondo, foreground='white')
                     
-                # Calendario Derecho: Solo si el evento pertenece a su mes activo
                 if fecha_dt.month == mes_der and fecha_dt.year == ano_der:
                     self.cal_siguiente.calevent_create(fecha_dt, texto, tag_name)
                     self.cal_siguiente.tag_config(tag_name, background=color_fondo, foreground='white')
