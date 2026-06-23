@@ -546,6 +546,76 @@ class CalendarioEventosApp(tk.Tk):
             if not ventanas_activas:
                 self.destroy()
 
+    def abrir_archivo_excel(self):
+        """Abre el archivo Excel de eventos utilizando la aplicación nativa del sistema operativo"""
+        import os
+        import subprocess
+        from tkinter import messagebox
+
+        # Define el nombre exacto de tu archivo Excel aquí
+        nombre_excel = "eventos.xlsx" 
+        
+        # Construimos la ruta absoluta en el directorio de ejecución actual
+        ruta_excel = os.path.join(os.path.dirname(os.path.abspath(sys.argv[0])), nombre_excel)
+
+        if os.path.exists(ruta_excel):
+            try:
+                # Abre el archivo con la aplicación predeterminada (Excel) sin bloquear Tkinter
+                os.startfile(ruta_excel)
+            except Exception as e:
+                messagebox.showerror("Error", f"No se pudo abrir el archivo:\n{str(e)}")
+        else:
+            messagebox.showerror("Archivo no encontrado", f"No se encontró el archivo '{nombre_excel}' en la carpeta de la aplicación.")
+
 if __name__ == "__main__":
-    app = CalendarioEventosApp()
+    import tkinter as tk
+
+    # 1. Instancia tu aplicación original
+    app = CalendarioEventosApp() 
+    
+    # ==========================================
+    # BOTÓN DE EXCEL CON REDISEÑO DE ESPACIO
+    # ==========================================
+    btn_excel = tk.Button(
+        app,
+        text="Abrir Excel de eventos",
+        bg="#2c3e50",    
+        fg="white",
+        font=("Segoe UI", 10),
+        activebackground="#1a252f",
+        activeforeground="white",
+        bd=0,
+        cursor="hand2",
+        command=app.abrir_archivo_excel
+    )
+    # Lo empaquetamos abajo fijando márgenes limpios
+    btn_excel.pack(side=tk.BOTTOM, fill=tk.X, ipady=6, padx=120, pady=15)
+    
+    # ==========================================
+    # TRUCO: AMPLIAR LA VENTANA EN TIEMPO REAL
+    # ==========================================
+    app.update_idletasks() # Fuerza a Tkinter a calcular las dimensiones reales actuales
+    
+    # Obtenemos la geometría actual (ej. "800x450+100+100")
+    geometria_actual = app.geometry()
+    
+    try:
+        # Desglosamos el tamaño (ancho y alto) separando por la 'x' y los signos '+'
+        partes = geometria_actual.split('+')[0] # Nos quedamos con "800x450"
+        ancho_actual = int(partes.split('x')[0])
+        alto_actual = int(partes.split('x')[1])
+        
+        # Le sumamos 55 píxeles al alto para que el botón aparezca perfectamente
+        nuevo_alto = alto_actual + 55
+        
+        # Aplicamos la nueva geometría manteniendo el ancho original
+        app.geometry(f"{ancho_actual}x{nuevo_alto}")
+    except Exception:
+        # Respaldo si tu app no usa geometría fija: simplemente le da un tamaño base amplio
+        app.geometry("740x540") 
+
+    # Enviar al frente
+    btn_excel.tkraise()
+    
+    # 3. Inicia tu loop original
     app.mainloop()
